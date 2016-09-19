@@ -1,8 +1,11 @@
 package com.yoloci.fileupload;
 
 import android.os.Bundle;
+import android.support.annotation.Nullable;
+import android.telecom.Call;
 
 import com.facebook.react.bridge.Arguments;
+import com.facebook.react.bridge.ReactContext;
 import com.facebook.react.bridge.ReadableArray;
 import com.facebook.react.bridge.ReadableMap;
 import com.facebook.react.bridge.ReadableMapKeySetIterator;
@@ -12,6 +15,7 @@ import com.facebook.react.bridge.ReactMethod;
 import com.facebook.react.bridge.Callback;
 
 import java.io.DataInputStream;
+import java.io.File;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.io.DataOutputStream;
@@ -19,6 +23,8 @@ import java.io.BufferedReader;
 import java.io.InputStreamReader;
 
 import com.facebook.react.bridge.WritableMap;
+import com.facebook.react.modules.core.DeviceEventManagerModule;
+
 import java.io.FileInputStream;
 
 import org.json.JSONObject;
@@ -34,8 +40,16 @@ public class FileUploadModule extends ReactContextBaseJavaModule {
         super(reactContext);
     }
 
+    private void sendEvent(ReactContext reactContext,
+                           String eventName,
+                           @Nullable WritableMap params) {
+        reactContext
+                .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class)
+                .emit(eventName, params);
+    }
+
     @ReactMethod
-    public void upload(final ReadableMap options, final Callback callback) {
+    public void upload(final ReadableMap options, final Callback uploadedCallback) {
         String lineEnd = "\r\n";
         String twoHyphens = "--";
         String boundary =  "*****";
@@ -111,6 +125,10 @@ public class FileUploadModule extends ReactContextBaseJavaModule {
                 String filepath = file.getString("filepath");
                 filepath = filepath.replace("file://", "");
                 fileInputStream = new FileInputStream(filepath);
+                File f=new File(filepath);
+                long totalBytes=f.length();
+                long uploadedBytes=0;
+
 
                 outputStream.writeBytes(twoHyphens + boundary + lineEnd);
                 outputStream.writeBytes("Content-Disposition: form-data; name=\"image\";filename=\"" + filename + "\"" + lineEnd);
@@ -128,6 +146,13 @@ public class FileUploadModule extends ReactContextBaseJavaModule {
                     bytesAvailable = fileInputStream.available();
                     bufferSize = Math.min(bytesAvailable, maxBufferSize);
                     bytesRead = fileInputStream.read(buffer, 0, bufferSize);
+
+                    uploadedBytes+=bytesRead;
+                    int progressPercentage=(int)((uploadedBytes*100)/totalBytes);
+                    WritableMap params = Arguments.createMap();
+                    params.putString("filePath", filepath);
+                    params.putInt("progress",progressPercentage);
+                    sendEvent(this.getReactApplicationContext(), "uploadProgress", params);
                 }
 
                 outputStream.writeBytes(lineEnd);
@@ -143,7 +168,7 @@ public class FileUploadModule extends ReactContextBaseJavaModule {
                 fileInputStream.close();
                 outputStream.flush();
                 outputStream.close();
-                callback.invoke("Error happened: " + serverResponseMessage, null);
+                uploadedCallback.invoke("Error happened: " + serverResponseMessage, null);
             } else {
                 BufferedReader br = new BufferedReader(new InputStreamReader(connection.getInputStream()));
                 StringBuilder sb = new StringBuilder();
@@ -164,13 +189,13 @@ public class FileUploadModule extends ReactContextBaseJavaModule {
                 fileInputStream.close();
                 outputStream.flush();
                 outputStream.close();
-                callback.invoke(null, map);
+                uploadedCallback.invoke(null, map);
             }
 
 
 
         } catch(Exception ex) {
-            callback.invoke("Error happened: " + ex.getMessage(), null);
+            uploadedCallback.invoke("Error happened: " + ex.getMessage(), null);
         }
     }
 }
